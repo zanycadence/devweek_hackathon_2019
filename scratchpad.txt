@@ -1,2 +1,9 @@
 ### stream pre-rendered .mp4 video
-ffmpeg -re -i ./test_media/MVI_0674.MP4 -codec copy -f flv rtmp://client39878:dabbbd93@0ad8d8.entrypoint.cloud.wowza.com:1935/app-610a/edf1d9cb
+    ffmpeg -re -i ./test_media/MVI_0674.MP4 -codec copy -f flv rtmp://client39878:dabbbd93@0ad8d8.entrypoint.cloud.wowza.com:1935/app-610a/edf1d9cb
+
+
+
+ojypsoxqotev4
+
+
+ffmpeg -re -y -r 5 -f mjpeg -an -i http://localhost:3001/live.jpg -vcodec libx264 -b 24k -bt 32k -threads 0 -f flv rtmp://client39878:dabbbd93@0ad8d8.entrypoint.cloud.wowza.com:1935/app-610a/edf1d9cb

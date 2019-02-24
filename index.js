@@ -23,7 +23,7 @@ EchoStream.prototype._write = function (chunk, encoding, done) { // step 3
 
 
 //ccapi data
-const camera_base_addr = "http://192.168.1.2:8080/ccapi";
+const camera_base_addr = "http://172.20.10.4:8080/ccapi";
 const liveview_start_addr = camera_base_addr + "/ver100/shooting/liveview";
 const liveview_get_one_addr = liveview_start_addr + "/flip";
 const liveview_get_img_stream_addr = liveview_start_addr + "/scrolldetail"
