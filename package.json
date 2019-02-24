@@ -7,5 +7,12 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "dependencies": {
+    "@datafire/wowza": "^4.0.0",
+    "file-on-write": "^1.1.1",
+    "mjpeg-consumer": "^1.1.0",
+    "request": "^2.88.0",
+    "request-promise": "^4.2.4"
+  }
 }
