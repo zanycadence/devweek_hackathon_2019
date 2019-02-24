@@ -1,6 +1,10 @@
 const rp = require('request-promise');
 const request = require('request');
 const fs = require('fs');
+const SerialPort = require('serialport')
+const port = new SerialPort('/dev/something', {
+  baudRate: 9600
+})
 
 const express = require('express')
 const app = express()
@@ -18,7 +22,7 @@ const liveview_get_one_addr = liveview_start_addr + "/flip";
 const liveview_get_img_stream_addr = liveview_start_addr + "/scrolldetail";
 const shooting_shutter_addr = camera_base_addr + "/ver100/shooting/control/shutterbutton/manual";
 const zoom_addr = camera_base_addr + "/ver100/shooting/control/zoom";
-
+const sd_card_addr = camera_base_addr + "/ver100/contents/sd/100CANON";
 
 var start_liveview = () => {
 
@@ -86,10 +90,57 @@ var press_shutter_button = () => {
         resolve();
       })
       .catch((err) => {
-        console.log("shutter press error!");
+        console.log("shutter press error!: ", err);
         reject();
       })
   })
+}
+
+var delay = (length) => {
+  return new Promise(function (resolve, reject) {
+    setTimeout(resolve, length)
+  })
+}
+
+var list_contents = () => {
+  return new Promise(function (resolve, reject) {
+    rp(sd_card_addr)
+      .then((result) => {
+        var res = JSON.parse(result);
+        var filenames = [];
+        var ret_obj = {};
+        for (var i = 0; i < res.url.length; i++) {
+          filenames.push(res.url[i].split("/").pop())
+        }
+        ret_obj.filenames = filenames;
+        console.log("successfully listed sdcard contents");
+        resolve(ret_obj);
+      })
+      .catch((err) => {
+        console.log("error reading sdcard contents: ", err);
+        reject();
+      })
+  })
+}
+
+var get_image = (filename) => {
+  return new Promise(function (resolve, reject) {
+    console.log("hitting: " + sd_card_addr + "/" + filename);
+    request(sd_card_addr + "/" + filename).on('response', (response) => {
+      var img_data = '';
+      response.setEncoding('binary');
+      response.on('data', function (chunk) {
+        img_data += chunk;
+      });
+
+      response.on('end', function () {
+        console.log("data ended!")
+        resolve(img_data);
+      });
+
+    })
+  })
+
 }
 
 var get_zoom_level = () => {
@@ -224,6 +275,62 @@ var connect_camera = () => {
   })
 }
 
+app.get("/robot/f", (req, res) => {
+  port.write("f\n");
+  res.send({
+    status: "success"
+  })
+});
+app.get("/robot/b", (req, res) => {
+  port.write("b\n");
+  res.send({
+    status: "success"
+  })
+});
+app.get("/robot/fl", (req, res) => {
+  port.write("fl\n");
+  res.send({
+    status: "success"
+  })
+});
+app.get("/robot/fr", (req, res) => {
+  port.write("fr\n");
+  res.send({
+    status: "success"
+  })
+});
+app.get("/robot/bl", (req, res) => {
+  port.write("fl\n");
+  res.send({
+    status: "success"
+  })
+});
+app.get("/robot/br", (req, res) => {
+  port.write("fr\n");
+  res.send({
+    status: "success"
+  })
+});
+
+
+
+app.get("/", (req, res) => {
+  res.send("welcome to photbot");
+})
+
+app.get("/sdcard", (req, res) => {
+  list_contents()
+    .then((urls) => {
+      res.send(urls);
+    })
+    .catch((err) => {
+
+      console.log(err);
+      res.send({
+        error: err
+      });
+    })
+})
 
 app.get('/start_camera', (req, res) => {
   connect_camera()
@@ -296,7 +403,60 @@ app.get('/snap', (req, res) => {
         status: err
       })
     })
+});
+
+app.get("/sdcard/fetch", (req, res) => {
+  var img_name = req.query.img;
+
+  if (img_name) {
+    get_image(img_name)
+      .then((image) => {
+        var data = Buffer.from(image, 'binary')
+        console.log("now to send the image...");
+        res.setHeader('content-type', 'image/jpeg');
+        res.setHeader('content-length', data.length)
+        res.end(data);
+      })
+  } else {
+    res.send({
+      error: "invalid name"
+    });
+  }
 })
+
+app.get('/snap_return', (req, res) => {
+  press_shutter_button()
+    .then(release_shutter_button)
+    .then((res) => {
+      return new Promise(function (resolve, reject) {
+        delay(500)
+          .then(resolve)
+          .catch(reject)
+      })
+    })
+    .then(list_contents)
+    .then((filenames) => {
+      return new Promise(function (resolve, reject) {
+        get_image(filenames.filenames.pop())
+          .then((image) => {
+            resolve(image);
+          })
+      })
+    })
+    .then((image) => {
+      var data = Buffer.from(image, 'binary')
+      console.log("now to send the image...");
+      res.setHeader('content-type', 'image/jpeg');
+      res.setHeader('content-length', data.length)
+      res.end(data);
+    })
+    .catch((err) => {
+      console.log("err capturing and sending image: ", err);
+      res.send({
+        error: err
+      });
+    });
+});
 
 app.get('/stop_liveview', (req, res) => {
   stop_liveview()
@@ -313,6 +473,48 @@ app.get('/stop_liveview', (req, res) => {
 });
 
 app.get('/live.jpg', (req, res) => {
+
+  start_liveview()
+    .then(() => {
+      res.set({
+        'content-type': `multipart/x-mixed-replace;boundary="${BOUNDARY}"`,
+        'Cache-Control': 'no-cache, no-store, max-age=0, must-revalidate',
+        'Connection': 'keep-alive',
+      });
+      res.on('close', () => {
+        res.send({
+          stream: "done!"
+        })
+        res.end();
+      });
+      var loop = () => {
+        request(liveview_get_one_addr).on('response', (response) => {
+          var img_data = '';
+          response.setEncoding('binary');
+          response.on('data', function (chunk) {
+            img_data += chunk
+          });
+
+          response.on('end', function () {
+            var chunk_buffer = Buffer.from(img_data, 'binary');
+            var stringified = chunk_buffer.toString('hex');
+            var img_buffer = Buffer.from(stringified, 'hex')
+
+            res.write(`--${BOUNDARY}\r\n`);
+            res.write('content-type: image/jpeg\r\n');
+            res.write(`content-length: ${img_buffer.length}\r\n`);
+            res.write('\r\n');
+            res.write(img_buffer, 'binary');
+            res.write('\r\n');
+          })
+        })
+      }
+      setInterval(loop, 300);
+    })
+
+});
+
+app.get('/actual_live.jpg', (req, res) => {
   res.set({
     'content-type': `multipart/x-mixed-replace;boundary="${BOUNDARY}"`,
     'Cache-Control': 'no-cache, no-store, max-age=0, must-revalidate',
