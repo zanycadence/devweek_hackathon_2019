@@ -50,7 +50,7 @@ typings/
 
 test_media/
 video/
-
+frames/
 # Output of 'npm pack'
 *.tgz
 

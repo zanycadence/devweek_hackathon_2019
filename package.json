@@ -10,6 +10,7 @@
   "license": "ISC",
   "dependencies": {
     "@datafire/wowza": "^4.0.0",
+    "express": "^4.16.4",
     "file-on-write": "^1.1.1",
     "mjpeg-consumer": "^1.1.0",
     "request": "^2.88.0",
