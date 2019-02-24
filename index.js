@@ -6,28 +6,18 @@ const express = require('express')
 const app = express()
 const port = 3001
 
+app.use(express.json())
+
 const BOUNDARY = '---------------RANDOMSTRINGBOUNDARY------------';
-
-
-var stream = require('stream');
-var util = require('util');
-
-function EchoStream() { // step 2
-  stream.Writable.call(this);
-};
-util.inherits(EchoStream, stream.Writable); // step 1
-EchoStream.prototype._write = function (chunk, encoding, done) { // step 3
-  console.log(chunk.toString());
-  done();
-}
 
 
 //ccapi data
 const camera_base_addr = "http://172.20.10.4:8080/ccapi";
 const liveview_start_addr = camera_base_addr + "/ver100/shooting/liveview";
 const liveview_get_one_addr = liveview_start_addr + "/flip";
-const liveview_get_img_stream_addr = liveview_start_addr + "/scrolldetail"
-
+const liveview_get_img_stream_addr = liveview_start_addr + "/scrolldetail";
+const shooting_shutter_addr = camera_base_addr + "/ver100/shooting/control/shutterbutton/manual";
+const zoom_addr = camera_base_addr + "/ver100/shooting/control/zoom";
 
 
 var start_liveview = () => {
@@ -78,14 +68,91 @@ var stop_liveview = () => {
 
   })
 }
+var press_shutter_button = () => {
+  return new Promise(function (resolve, reject) {
+    var options = {
+      method: 'POST',
+      uri: shooting_shutter_addr,
+      body: {
+        action: "full_press",
+        af: true
+      },
+      json: true
+    };
 
-// function streamToPromise(stream) {
-//   return new Promise(function (resolve, reject) {
-//     // resolve with location of saved file
-//     stream.on("end", resolve);
-//     stream.on("error", reject);
-//   })
-// }
+    rp(options)
+      .then(() => {
+        console.log("shutter pressed!");
+        resolve();
+      })
+      .catch((err) => {
+        console.log("shutter press error!");
+        reject();
+      })
+  })
+}
+
+var get_zoom_level = () => {
+  return new Promise(function (resolve, reject) {
+    rp(zoom_addr)
+      .then((result) => {
+        var res = JSON.parse(result);
+        console.log("zoom level: " + res.value);
+        resolve(res.value);
+      })
+      .catch((err) => {
+        console.log("get zoom error: ", err);
+        reject();
+      })
+  })
+}
+
+var set_zoom_level = (level) => {
+  return new Promise(function (resolve, reject) {
+    var options = {
+      method: "POST",
+      uri: zoom_addr,
+      body: {
+        value: level
+      },
+      json: true
+    }
+    rp(options)
+      .then((result) => {
+        var res = JSON.parse(result);
+        console.log("zoom level: " + res.value);
+        resolve(res.value);
+      })
+      .catch((err) => {
+        console.log("get zoom error: ", err);
+        reject();
+      })
+  })
+}
+
+var release_shutter_button = () => {
+  return new Promise(function (resolve, reject) {
+    var options = {
+      method: 'POST',
+      uri: shooting_shutter_addr,
+      body: {
+        action: "release",
+        af: true
+      },
+      json: true
+    };
+
+    rp(options)
+      .then(() => {
+        console.log("shutter released!");
+        resolve();
+      })
+      .catch((err) => {
+        console.log("shutter press error!");
+        reject();
+      })
+  })
+}
 
 
 var get_one_liveview_img = () => {
@@ -143,12 +210,6 @@ var get_liveview_scroll = () => {
     })
 }
 
-// var delay = (delay_length) => {
-//   return new Promise(function (resolve, reject) {
-//     setTimeout(resolve, 100);
-//   })
-// }
-
 var connect_camera = () => {
   return new Promise(function (resolve, reject) {
     rp(camera_base_addr)
@@ -192,6 +253,51 @@ app.get('/start_liveview', (req, res) => {
     });
 });
 
+app.get('/zoom', (req, res) => {
+  get_zoom_level()
+    .then((val) => {
+      res.send({
+        zoom: val
+      })
+    })
+    .catch((err) => {
+      res.send({
+        err: 'get zoom err'
+      })
+    })
+})
+
+app.post('/zoom', (req, res) => {
+  console.log(req.body.zoom);
+
+  set_zoom_level(req.body.zoom)
+    .then((val) => {
+      res.send({
+        zoom: val
+      })
+    })
+    .catch((err) => {
+      res.send({
+        error: "zoom set error"
+      })
+    })
+})
+
+app.get('/snap', (req, res) => {
+  press_shutter_button()
+    .then(release_shutter_button)
+    .then(() => {
+      res.send({
+        status: "success"
+      })
+    })
+    .catch((err) => {
+      res.send({
+        status: err
+      })
+    })
+})
+
 app.get('/stop_liveview', (req, res) => {
   stop_liveview()
     .then(() => {
@@ -214,7 +320,7 @@ app.get('/live.jpg', (req, res) => {
   });
 
   res.on('close', () => {
-    res.end()
+    res.end();
   });
 
   var frame = 0;
@@ -235,20 +341,18 @@ app.get('/live.jpg', (req, res) => {
           console.log("FRAME START")
         } else if (stringified == 'ffff') {
           console.log("FRAME END");
-          var img_buffer = Buffer.from(img_string, 'hex');
-          img_string = '';
-          console.log("FRAME END");
-          res.write(`--${BOUNDARY}\r\n`);
-          res.write('content-type: image/jpeg\r\n');
-          res.write(`content-length: ${img_buffer.length}\r\n`);
-          res.write('\r\n');
-          res.write(img_buffer, 'binary');
-          res.write('\r\n');
+          if (img_string != '') {
+            var img_buffer = Buffer.from(img_string, 'hex');
+            img_string = '';
+            console.log("FRAME END");
+            res.write(`--${BOUNDARY}\r\n`);
+            res.write('content-type: image/jpeg\r\n');
+            res.write(`content-length: ${img_buffer.length}\r\n`);
+            res.write('\r\n');
+            res.write(img_buffer, 'binary');
+            res.write('\r\n');
+          }
 
-          // fs.writeFile('./frames/frame.jpg', img_string, 'hex', (err) => {
-          //   console.log(err)
-          //   img_string = '';
-          // })
         } else {
           img_string += stringified;
         }
